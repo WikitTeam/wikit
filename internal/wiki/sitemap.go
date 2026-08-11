@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -170,6 +171,101 @@ func parseLastmod(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, err
+}
+
+// ---- incremental sitemap checkpointing ----
+
+const (
+	// Both thresholds must be crossed before a checkpoint is written: the whole
+	// sitemap is rewritten each time (megabytes on a large wiki), so a fast run
+	// must not rewrite it every few seconds. Losing up to this much work to a
+	// kill is cheap; rewriting the file thousands of times is not.
+	sitemapCheckpointPages = 50
+	sitemapCheckpointEvery = 30 * time.Second
+)
+
+// sitemapProgress accumulates the pages this run has fully archived and writes
+// meta/sitemap.json as it goes, so an interrupted run leaves a resumable
+// sitemap behind instead of nothing (the final full write at the end of the
+// work loop supersedes every checkpoint, keeping completed runs byte-identical
+// to what they produced before).
+//
+// It is seeded from the previous sitemap, so a checkpoint is never a downgrade
+// from what was already on disk: pages this run hasn't reached yet keep their
+// old stamp and are re-checked next time, pages it finished get the new one.
+// Only entries of the current sitemap are ever emitted, so pages that vanished
+// from the site drop out exactly as the final write would drop them.
+type sitemapProgress struct {
+	w     *WikiDot
+	order []sitemapEntry // this run's sitemap, in document order
+
+	mu    sync.Mutex
+	done  map[string]*int64 // page name -> stamp to record
+	dirty int
+	last  time.Time
+
+	// writeMu serializes whole checkpoints (snapshot + write) so a slow write
+	// can't land after a newer snapshot and regress the file.
+	writeMu sync.Mutex
+}
+
+func newSitemapProgress(w *WikiDot, entries []sitemapEntry, oldMap map[string]*int64) *sitemapProgress {
+	done := make(map[string]*int64, len(entries))
+	for _, e := range entries {
+		if stamp, ok := oldMap[e.Name]; ok {
+			done[e.Name] = stamp
+		}
+	}
+	return &sitemapProgress{w: w, order: entries, done: done, last: time.Now()}
+}
+
+// markDone records that name is fully archived at the given sitemap stamp.
+// Pages the fast path skipped need no call: their stamp is unchanged, so the
+// seed already carries it.
+func (p *sitemapProgress) markDone(name string, stamp *int64) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if prev, ok := p.done[name]; ok && stampEqual(prev, stamp) {
+		return
+	}
+	p.done[name] = stamp
+	p.dirty++
+}
+
+// checkpoint writes the sitemap and the pending/id state if enough has changed
+// since the last one (or force is set). It is a no-op when nothing changed, so
+// a run with no updates never touches the file.
+func (p *sitemapProgress) checkpoint(force bool) {
+	if p == nil {
+		return
+	}
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+
+	p.mu.Lock()
+	if p.dirty == 0 || (!force && (p.dirty < sitemapCheckpointPages || time.Since(p.last) < sitemapCheckpointEvery)) {
+		p.mu.Unlock()
+		return
+	}
+	snapshot := make([]sitemapEntry, 0, len(p.done))
+	for _, e := range p.order {
+		if stamp, ok := p.done[e.Name]; ok {
+			snapshot = append(snapshot, sitemapEntry{Name: e.Name, Update: stamp})
+		}
+	}
+	p.dirty = 0
+	p.last = time.Now()
+	p.mu.Unlock()
+
+	if err := p.w.writeSiteMap(snapshot); err != nil {
+		p.w.errf("Could not checkpoint sitemap: %v", err)
+	}
+	if err := p.w.state.flush(); err != nil {
+		p.w.errf("Could not checkpoint state: %v", err)
+	}
 }
 
 func findMostRevision(revs []PageRevision) (int64, bool) {

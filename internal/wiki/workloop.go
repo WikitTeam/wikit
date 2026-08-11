@@ -62,6 +62,11 @@ func (w *WikiDot) WorkLoop(sitemapLock *sync.Mutex) error {
 		}
 	}
 
+	// Checkpoint the sitemap as pages complete, so an interrupt doesn't throw
+	// away the run. Built after the removal sweep above, so pages that are gone
+	// from the site never make it into a checkpoint.
+	w.progress = newSitemapProgress(w, entries, oldMap)
+
 	// Process pages.
 	w.runPages(entries, oldMap)
 	w.logf("Writing new sitemap...")
@@ -160,7 +165,9 @@ func (w *WikiDot) processPage(entry sitemapEntry, oldMap map[string]*int64) {
 		}
 	}
 
-	var changed bool
+	// failed records that at least one revision did not make it to disk, which
+	// keeps the page out of the sitemap checkpoint so the next run retries it.
+	var changed, failed bool
 	var mu sync.Mutex
 	var rwg sync.WaitGroup
 	revCh := make(chan PageRevision)
@@ -169,6 +176,7 @@ func (w *WikiDot) processPage(entry sitemapEntry, oldMap map[string]*int64) {
 		go func() {
 			defer rwg.Done()
 			for rev := range revCh {
+				stored := false
 				for attempt := 0; attempt < 2; attempt++ {
 					w.logf("Fetching revision %d (%d) of %s", rev.Revision, rev.GlobalRevision, name)
 					body, err := w.fetchRevision(rev.GlobalRevision)
@@ -182,9 +190,17 @@ func (w *WikiDot) processPage(entry sitemapEntry, oldMap map[string]*int64) {
 						changed = true
 						mu.Unlock()
 						w.state.deletePendingRevision(rev.GlobalRevision)
+						stored = true
+					} else {
+						w.errf("Could not write revision %d of %s: %v", rev.Revision, name, err)
 					}
 					w.delay()
 					break
+				}
+				if !stored {
+					mu.Lock()
+					failed = true
+					mu.Unlock()
 				}
 			}
 		}()
@@ -199,6 +215,12 @@ func (w *WikiDot) processPage(entry sitemapEntry, oldMap map[string]*int64) {
 	_ = w.writePageMetadata(name, metadata)
 	if changed {
 		_ = w.compressRevisions(normalizeName(name))
+	}
+
+	// Page and metadata are both on disk: safe to record it as archived.
+	if !failed {
+		w.progress.markDone(name, pageUpdate)
+		w.progress.checkpoint(false)
 	}
 }
 

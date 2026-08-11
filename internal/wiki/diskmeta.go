@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"wikit/internal/jsonx"
@@ -357,14 +358,60 @@ func decodeFile(path string) any {
 	return v
 }
 
-// writeJSON marshals v with the byte-exact encoder and writes it atomically.
+// tempPrefix marks the scratch files writeJSON renames into place. Kept
+// distinctive so cleanTempFiles can recognise its own leftovers.
+const tempPrefix = ".wikit-tmp-"
+
+// writeJSON marshals v with the byte-exact encoder and writes it atomically:
+// into a scratch file in the same directory, then rename over the target. A
+// process killed mid-write therefore leaves either the old file or the new one,
+// never a truncated one — which matters for sitemap.json, since a corrupt
+// sitemap silently downgrades the next run to a full scan.
 func writeJSON(path string, v any) error {
 	data, err := jsonx.Marshal(v)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	tmp, err := os.CreateTemp(dir, tempPrefix+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	// CreateTemp makes the file 0600; match the 0644 the direct write used.
+	if err := os.Chmod(name, 0o644); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
+}
+
+// cleanTempFiles removes scratch files a previously killed run left behind in
+// dir. Non-recursive and best-effort.
+func cleanTempFiles(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), tempPrefix) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -33,10 +34,11 @@ type WikiDot struct {
 	url     string
 	workDir string
 
-	client    *httpc.Client
-	users     *userlist.List
-	state     *state
-	ajaxURL   *url.URL
+	client       *httpc.Client
+	users        *userlist.List
+	state        *state
+	progress     *sitemapProgress
+	ajaxURL      *url.URL
 	delayMs      int
 	ultraFast    bool
 	refreshVotes bool
@@ -97,8 +99,12 @@ func (w *WikiDot) delay() {
 	}
 }
 
-// initialize loads persisted state and cookies.
+// initialize loads persisted state and cookies, after clearing any scratch
+// files a previously killed run left in the hot metadata directories.
 func (w *WikiDot) initialize() {
+	metaDir := filepath.Join(w.workDir, "meta")
+	cleanTempFiles(metaDir)
+	cleanTempFiles(filepath.Join(metaDir, "pages"))
 	w.state.load()
 	w.loadCookies()
 }
