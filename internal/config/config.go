@@ -64,6 +64,15 @@ type Config struct {
 	// sitemap instead of deleting them. Settable in config.json or via
 	// --keep-removed.
 	KeepRemoved bool `json:"keep_removed,omitempty"`
+
+	// CheckpointPages and CheckpointSeconds tune how often meta/sitemap.json is
+	// checkpointed mid-run, which is what makes an interrupted backup resumable.
+	// A checkpoint is written once both thresholds are crossed (default 50 pages
+	// and 30 seconds). 0 drops that condition; a negative value turns
+	// checkpointing off entirely. Settable via --checkpoint-pages /
+	// --checkpoint-seconds.
+	CheckpointPages   *int `json:"checkpoint_pages,omitempty"`
+	CheckpointSeconds *int `json:"checkpoint_seconds,omitempty"`
 }
 
 // Default returns the built-in configuration used when no config.json is

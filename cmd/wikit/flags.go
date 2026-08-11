@@ -28,6 +28,9 @@ type backupOpts struct {
 	refreshVotes  *bool
 	keepRemoved   *bool
 
+	checkpointPages   *int
+	checkpointSeconds *int
+
 	noUpdateCheck bool
 }
 
@@ -57,6 +60,8 @@ func parseBackupArgs(args []string) (backupOpts, []string, error) {
 	refreshVotes := fs.Bool("refresh-votes", false, "after backup, bulk-refresh page ratings/votes via ListPages")
 	scheme := fs.String("scheme", "https", "default scheme for wikis whose url omits one: http or https")
 	keepRemoved := fs.Bool("keep-removed", false, "keep locally-archived pages that vanished from the sitemap")
+	checkpointPages := fs.Int("checkpoint-pages", 50, "pages between resume checkpoints (0 = no page requirement, negative = never checkpoint)")
+	checkpointSeconds := fs.Int("checkpoint-seconds", 30, "seconds between resume checkpoints (0 = no time requirement, negative = never checkpoint)")
 
 	// Allow flags and positional targets to be interleaved.
 	var targets []string
@@ -106,6 +111,12 @@ func parseBackupArgs(args []string) (backupOpts, []string, error) {
 	if setFlags["keep-removed"] {
 		opts.keepRemoved = keepRemoved
 	}
+	if setFlags["checkpoint-pages"] {
+		opts.checkpointPages = checkpointPages
+	}
+	if setFlags["checkpoint-seconds"] {
+		opts.checkpointSeconds = checkpointSeconds
+	}
 	if setFlags["scheme"] {
 		if *scheme != "http" && *scheme != "https" {
 			return opts, nil, fmt.Errorf("--scheme must be \"http\" or \"https\", got %q", *scheme)
@@ -127,6 +138,12 @@ func (o backupOpts) apply(cfg *config.Config) {
 	}
 	if o.keepRemoved != nil {
 		cfg.KeepRemoved = *o.keepRemoved
+	}
+	if o.checkpointPages != nil {
+		cfg.CheckpointPages = o.checkpointPages
+	}
+	if o.checkpointSeconds != nil {
+		cfg.CheckpointSeconds = o.checkpointSeconds
 	}
 	if o.scheme != nil {
 		cfg.Scheme = *o.scheme

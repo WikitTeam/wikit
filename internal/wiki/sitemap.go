@@ -175,14 +175,41 @@ func parseLastmod(s string) (time.Time, error) {
 
 // ---- incremental sitemap checkpointing ----
 
-const (
-	// Both thresholds must be crossed before a checkpoint is written: the whole
-	// sitemap is rewritten each time (megabytes on a large wiki), so a fast run
-	// must not rewrite it every few seconds. Losing up to this much work to a
-	// kill is cheap; rewriting the file thousands of times is not.
-	sitemapCheckpointPages = 50
-	sitemapCheckpointEvery = 30 * time.Second
-)
+// CheckpointPolicy controls how often the resumable sitemap checkpoint is
+// written. Both thresholds must be crossed before a checkpoint lands: the whole
+// sitemap is rewritten each time (megabytes on a large wiki), so a fast run must
+// not rewrite it every few seconds. Losing up to this much work to a kill is
+// cheap; rewriting the file thousands of times is not.
+//
+// A zero field drops that condition (checkpoint as soon as the other one is
+// met); a negative field disables checkpointing altogether, restoring the
+// pre-0.1.7 behaviour of only writing the sitemap once the run finishes.
+type CheckpointPolicy struct {
+	Pages   int // minimum newly-archived pages between checkpoints
+	Seconds int // minimum seconds between checkpoints
+}
+
+// DefaultCheckpointPolicy is used when neither config.json nor a flag says
+// otherwise.
+func DefaultCheckpointPolicy() CheckpointPolicy {
+	return CheckpointPolicy{Pages: 50, Seconds: 30}
+}
+
+func (c CheckpointPolicy) disabled() bool { return c.Pages < 0 || c.Seconds < 0 }
+
+func (c CheckpointPolicy) minPages() int {
+	if c.Pages < 0 {
+		return 0
+	}
+	return c.Pages
+}
+
+func (c CheckpointPolicy) minElapsed() time.Duration {
+	if c.Seconds < 0 {
+		return 0
+	}
+	return time.Duration(c.Seconds) * time.Second
+}
 
 // sitemapProgress accumulates the pages this run has fully archived and writes
 // meta/sitemap.json as it goes, so an interrupted run leaves a resumable
@@ -196,8 +223,9 @@ const (
 // Only entries of the current sitemap are ever emitted, so pages that vanished
 // from the site drop out exactly as the final write would drop them.
 type sitemapProgress struct {
-	w     *WikiDot
-	order []sitemapEntry // this run's sitemap, in document order
+	w      *WikiDot
+	order  []sitemapEntry // this run's sitemap, in document order
+	policy CheckpointPolicy
 
 	mu    sync.Mutex
 	done  map[string]*int64 // page name -> stamp to record
@@ -216,7 +244,7 @@ func newSitemapProgress(w *WikiDot, entries []sitemapEntry, oldMap map[string]*i
 			done[e.Name] = stamp
 		}
 	}
-	return &sitemapProgress{w: w, order: entries, done: done, last: time.Now()}
+	return &sitemapProgress{w: w, order: entries, policy: w.checkpoint, done: done, last: time.Now()}
 }
 
 // markDone records that name is fully archived at the given sitemap stamp.
@@ -239,14 +267,14 @@ func (p *sitemapProgress) markDone(name string, stamp *int64) {
 // since the last one (or force is set). It is a no-op when nothing changed, so
 // a run with no updates never touches the file.
 func (p *sitemapProgress) checkpoint(force bool) {
-	if p == nil {
+	if p == nil || p.policy.disabled() {
 		return
 	}
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 
 	p.mu.Lock()
-	if p.dirty == 0 || (!force && (p.dirty < sitemapCheckpointPages || time.Since(p.last) < sitemapCheckpointEvery)) {
+	if p.dirty == 0 || (!force && (p.dirty < p.policy.minPages() || time.Since(p.last) < p.policy.minElapsed())) {
 		p.mu.Unlock()
 		return
 	}

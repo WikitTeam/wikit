@@ -122,7 +122,32 @@ wikit backup <name> [name...]    # back up specific wikis, Separate multiple wik
     --refresh-votes      after backup, bulk-refresh page ratings/votes
     --scheme <s>         default scheme for wikis whose url omits one (default https)
     --keep-removed       keep pages that disappeared from the sitemap
+    --checkpoint-pages <n>   pages between resume checkpoints (default 50)
+    --checkpoint-seconds <n> seconds between resume checkpoints (default 30)
 ```
+
+### Resuming an interrupted backup
+
+A backup records its progress in `meta/sitemap.json` as it goes, so a run that is
+killed part-way (Ctrl+C, a crash, a lost connection) picks up where it stopped
+instead of re-downloading every page's revisions from scratch on the next run.
+
+A checkpoint is written once **both** thresholds are crossed — by default 50
+newly-archived pages *and* 30 seconds since the last one. This flag affects only page versions that have already been converted to 7z files. Page folders that have not yet been converted are unaffected by interruptions and will automatically resume from where they left off.
+
+```
+wikit backup scp-wiki --checkpoint-pages 10 --checkpoint-seconds 5   # checkpoint more often
+wikit backup scp-wiki --checkpoint-pages 0                           # time-based only
+wikit backup scp-wiki --checkpoint-seconds -1                        # never checkpoint
+```
+
+- `0` drops that condition, leaving the other one in charge.
+- A **negative** value on either setting disables checkpointing entirely, so the
+  sitemap is only written when the run finishes.
+
+Lowering both values costs more disk writes but loses less work to an interrupt;
+raising them does the opposite. A completed run always writes the same final
+sitemap regardless of these settings.
 
 ### Refreshing ratings and votes
 
@@ -161,13 +186,18 @@ one-line notice if a newer version is available — disable with
   "socks_proxy": null,
   "refresh_votes": false,
   "scheme": "https",
-  "keep_removed": false
+  "keep_removed": false,
+  "checkpoint_pages": 50,
+  "checkpoint_seconds": 30
 }
 ```
 
-`refresh_votes`, `scheme` and `keep_removed` can be set here or overridden
-per-run with the matching flags (the flag wins). `keep_removed` keeps pages
-deleted from the wiki instead of removing them from the local archive.
+`refresh_votes`, `scheme`, `keep_removed`, `checkpoint_pages` and
+`checkpoint_seconds` can be set here or overridden per-run with the matching
+flags (the flag wins). `keep_removed` keeps pages deleted from the wiki instead
+of removing them from the local archive; the two `checkpoint_*` keys tune how
+often an interrupted run's progress is saved (see
+[Resuming an interrupted backup](#resuming-an-interrupted-backup)).
 
 Each wiki's `url` is optional (omit it to derive `https://<name>.wikidot.com`)
 and sets that wiki's protocol: a `url` written with `http://` or `https://` is

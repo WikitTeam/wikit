@@ -241,5 +241,7 @@ Flags:
       --refresh-votes     after backup, bulk-refresh page ratings/votes via ListPages
       --scheme <s>        default scheme for wikis whose url omits one: http or https (default https)
       --keep-removed      keep pages that disappeared from the sitemap
+      --checkpoint-pages <n>   pages between resume checkpoints (default 50)
+      --checkpoint-seconds <n> seconds between resume checkpoints (default 30)
 `)
 }

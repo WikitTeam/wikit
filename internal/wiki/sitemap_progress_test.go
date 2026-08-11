@@ -13,7 +13,12 @@ import (
 func testWiki(t *testing.T) *WikiDot {
 	t.Helper()
 	dir := t.TempDir()
-	return &WikiDot{name: "test", workDir: dir, state: newState(filepath.Join(dir, "meta"))}
+	return &WikiDot{
+		name:       "test",
+		workDir:    dir,
+		state:      newState(filepath.Join(dir, "meta")),
+		checkpoint: DefaultCheckpointPolicy(),
+	}
 }
 
 func stamp(v int64) *int64 { return &v }
@@ -140,8 +145,9 @@ func TestSitemapProgressNoWriteWhenClean(t *testing.T) {
 
 func TestSitemapProgressThrottles(t *testing.T) {
 	w := testWiki(t)
+	policy := w.checkpoint
 	var entries []sitemapEntry
-	for i := 0; i < sitemapCheckpointPages+1; i++ {
+	for i := 0; i < policy.Pages+1; i++ {
 		entries = append(entries, sitemapEntry{Name: fmt.Sprintf("page-%d", i), Update: stamp(int64(i))})
 	}
 	p := newSitemapProgress(w, entries, nil)
@@ -155,17 +161,39 @@ func TestSitemapProgressThrottles(t *testing.T) {
 	}
 
 	p2 := newSitemapProgress(w, entries, nil)
-	p2.last = time.Now().Add(-2 * sitemapCheckpointEvery)
+	p2.last = time.Now().Add(-2 * policy.minElapsed())
 	p2.markDone(entries[0].Name, entries[0].Update)
 	p2.checkpoint(false)
 	if _, err := os.Stat(w.sitemapPath()); !os.IsNotExist(err) {
 		t.Fatalf("checkpoint wrote for a single page (err = %v)", err)
 	}
 
-	p.last = time.Now().Add(-2 * sitemapCheckpointEvery)
+	p.last = time.Now().Add(-2 * policy.minElapsed())
 	p.checkpoint(false)
 	if _, err := os.Stat(w.sitemapPath()); err != nil {
 		t.Fatalf("checkpoint did not write after %d pages and a full interval: %v", len(entries), err)
+	}
+}
+
+func TestCheckpointPolicyOverrides(t *testing.T) {
+	// A zero page requirement checkpoints as soon as the time condition is met.
+	w := testWiki(t)
+	w.checkpoint = CheckpointPolicy{Pages: 0, Seconds: 0}
+	p := newSitemapProgress(w, entriesOf("a", 1), nil)
+	p.markDone("a", stamp(1))
+	p.checkpoint(false)
+	if _, err := os.Stat(w.sitemapPath()); err != nil {
+		t.Fatalf("zero-threshold policy did not checkpoint: %v", err)
+	}
+
+	// A negative value disables checkpointing entirely, even when forced.
+	w2 := testWiki(t)
+	w2.checkpoint = CheckpointPolicy{Pages: -1, Seconds: 30}
+	p2 := newSitemapProgress(w2, entriesOf("a", 1), nil)
+	p2.markDone("a", stamp(1))
+	p2.checkpoint(true)
+	if _, err := os.Stat(w2.sitemapPath()); !os.IsNotExist(err) {
+		t.Fatalf("disabled policy still wrote a checkpoint (err = %v)", err)
 	}
 }
 

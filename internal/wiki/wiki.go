@@ -43,6 +43,7 @@ type WikiDot struct {
 	ultraFast    bool
 	refreshVotes bool
 	keepRemoved  bool
+	checkpoint   CheckpointPolicy
 
 	tokenFetched bool
 
@@ -53,7 +54,7 @@ type WikiDot struct {
 	tokenMu sync.Mutex
 }
 
-func New(name, wikiURL, workDir string, client *httpc.Client, users *userlist.List, delayMs int, ultraFast, refreshVotes, keepRemoved bool) *WikiDot {
+func New(name, wikiURL, workDir string, client *httpc.Client, users *userlist.List, delayMs int, ultraFast, refreshVotes, keepRemoved bool, checkpoint CheckpointPolicy) *WikiDot {
 	au, _ := url.Parse(wikiURL + "/ajax-module-connector.php")
 	w := &WikiDot{
 		name:         name,
@@ -67,6 +68,7 @@ func New(name, wikiURL, workDir string, client *httpc.Client, users *userlist.Li
 		ultraFast:    ultraFast,
 		refreshVotes: refreshVotes,
 		keepRemoved:  keepRemoved,
+		checkpoint:   checkpoint,
 	}
 	return w
 }

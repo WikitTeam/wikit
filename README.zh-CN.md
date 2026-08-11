@@ -118,7 +118,28 @@ wikit backup <名字> [名字...]     # 备份指定的 wiki，用空格分隔�
     --refresh-votes      备份完成后，批量刷新页面评分/投票
     --scheme <s>         url 未写协议时的默认协议：http 或 https（默认 https）
     --keep-removed       保留已从 sitemap 中消失的页面（不删除）
+    --checkpoint-pages <n>   每隔多少页写一次断点（默认 50）
+    --checkpoint-seconds <n> 每隔多少秒写一次断点（默认 30）
 ```
+
+### 断点续传
+
+备份过程中会把进度写进 `meta/sitemap.json`，所以跑到一半被打断（Ctrl+C、崩溃、断网）后，
+下次再跑会从断掉的地方接着来，而非把每个页面的版本重新下载一遍。这一项标准影响的是已经转换为7z文件的页面版本。还未转换为7z文件的页面文件夹被打断不受影响，会自动断点续传。
+
+**两个条件都满足**时才会写一次断点：默认是「新归档了 50 个页面」**并且**「距上次断点过了
+30 秒」。
+```
+wikit backup scp-wiki --checkpoint-pages 10 --checkpoint-seconds 5   # 存得更勤
+wikit backup scp-wiki --checkpoint-pages 0                           # 只按时间存
+wikit backup scp-wiki --checkpoint-seconds -1                        # 完全不存断点
+```
+
+- 填 `0` 表示去掉这个条件，只看另一个。
+- 任意一个填**负数**表示彻底关掉断点，只在整轮跑完时写一次 sitemap。
+
+两个值调小会多写几次磁盘，但被打断时丢的进度更少；调大则相反。不管怎么设置，一轮完整跑完后
+写出的最终 sitemap 都是一样的。
 
 ### 刷新评分与投票
 
@@ -155,12 +176,16 @@ wikit version           # 显示当前版本
   "socks_proxy": null,
   "refresh_votes": false,
   "scheme": "https",
-  "keep_removed": false
+  "keep_removed": false,
+  "checkpoint_pages": 50,
+  "checkpoint_seconds": 30
 }
 ```
 
-`refresh_votes`、`scheme`、`keep_removed` 既可写在这里，也可用对应的命令行参数覆盖
-（带了参数以参数为准）。`keep_removed` 会保留已从 wiki 删除的页面，不从本地归档中移除。
+`refresh_votes`、`scheme`、`keep_removed`、`checkpoint_pages`、`checkpoint_seconds`
+既可写在这里，也可用对应的命令行参数覆盖（带了参数以参数为准）。`keep_removed` 会保留已从
+wiki 删除的页面，不从本地归档中移除；两个 `checkpoint_*` 控制被打断时进度存得有多勤，见
+[断点续传](#断点续传)。
 
 每个 wiki 的 `url` 可选（省略则推导 `https://<名字>.wikidot.com`），它同时决定该 wiki
 的协议：`url` 里写了 `http://` 或 `https://` 就原样使用，所以不同 wiki 可以用不同协议。
