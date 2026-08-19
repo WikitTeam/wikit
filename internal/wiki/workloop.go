@@ -70,7 +70,9 @@ func (w *WikiDot) WorkLoop(sitemapLock *sync.Mutex) error {
 	// Process pages.
 	w.runPages(entries, oldMap)
 	w.logf("Writing new sitemap...")
-	if err := w.writeSiteMap(entries); err != nil {
+	// Only pages that actually reached disk, so anything that failed into
+	// pending_pages is retried next run rather than skipped as up-to-date.
+	if err := w.progress.finish(); err != nil {
 		return err
 	}
 

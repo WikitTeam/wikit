@@ -308,3 +308,38 @@ func findMostRevision(revs []PageRevision) (int64, bool) {
 	}
 	return max, true
 }
+
+// snapshot returns the pages recorded as fully archived, in sitemap document
+// order. Callers hold no lock.
+func (p *sitemapProgress) snapshot() []sitemapEntry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]sitemapEntry, 0, len(p.done))
+	for _, e := range p.order {
+		if stamp, ok := p.done[e.Name]; ok {
+			out = append(out, sitemapEntry{Name: e.Name, Update: stamp})
+		}
+	}
+	return out
+}
+
+// finish writes the definitive sitemap for a completed page phase. It is not a
+// checkpoint: the throttle and the dirty counter are ignored, and a policy that
+// disabled checkpointing still gets this one write.
+//
+// Unlike writing the raw sitemap entries, this records only pages that actually
+// reached disk, so pages that failed into pending_pages keep their old stamp (or
+// stay absent) and are retried on the next run instead of being skipped as
+// up-to-date.
+func (p *sitemapProgress) finish() error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+
+	snapshot := p.snapshot()
+	p.mu.Lock()
+	p.dirty = 0
+	p.last = time.Now()
+	p.mu.Unlock()
+
+	return p.w.writeSiteMap(snapshot)
+}

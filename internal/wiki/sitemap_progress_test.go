@@ -218,3 +218,71 @@ func TestWriteJSONIsAtomicAndCleanable(t *testing.T) {
 		t.Fatalf("cleanTempFiles left %v", left)
 	}
 }
+
+func TestFinishWritesOnlyArchivedPages(t *testing.T) {
+	// A clean run records every entry, so the sitemap matches the raw entries
+	// byte for byte -- the pre-existing output for a successful backup.
+	w := testWiki(t)
+	entries := entriesOf("a", 1, "b", 2, "c", 3)
+	p := newSitemapProgress(w, entries, nil)
+	for _, e := range entries {
+		p.markDone(e.Name, e.Update)
+	}
+	if err := p.finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	got, _ := os.ReadFile(w.sitemapPath())
+	if err := w.writeSiteMap(entries); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(w.sitemapPath())
+	if string(got) != string(want) {
+		t.Fatalf("clean run differs from raw entries:\n got %s\nwant %s", got, want)
+	}
+
+	// A page that failed keeps its old stamp, so the next run sees it as stale
+	// and retries it instead of skipping it as up-to-date.
+	w2 := testWiki(t)
+	p2 := newSitemapProgress(w2, entries, map[string]*int64{"b": stamp(1)})
+	p2.markDone("a", stamp(1))
+	p2.markDone("c", stamp(3)) // "b" failed: never marked
+	if err := p2.finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	keys, vals := readSitemapKeys(t, w2)
+	if !eqKeys(keys, []string{"a", "b", "c"}) {
+		t.Fatalf("keys = %v, want [a b c]", keys)
+	}
+	if *vals["b"] != 1 {
+		t.Errorf("b = %d, want the stale 1 so the next run retries it", *vals["b"])
+	}
+
+	// The same holds for a first run, where the failed page is absent entirely.
+	w3 := testWiki(t)
+	p3 := newSitemapProgress(w3, entries, nil)
+	p3.markDone("a", stamp(1))
+	if err := p3.finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	keys, _ = readSitemapKeys(t, w3)
+	if !eqKeys(keys, []string{"a"}) {
+		t.Fatalf("keys = %v, want [a]", keys)
+	}
+}
+
+func TestFinishIgnoresThrottleAndDisabledPolicy(t *testing.T) {
+	w := testWiki(t)
+	w.checkpoint = CheckpointPolicy{Pages: -1, Seconds: -1} // checkpointing off
+	p := newSitemapProgress(w, entriesOf("a", 1), nil)
+	p.markDone("a", stamp(1))
+	p.checkpoint(true)
+	if _, err := os.Stat(w.sitemapPath()); !os.IsNotExist(err) {
+		t.Fatalf("disabled policy checkpointed (err = %v)", err)
+	}
+	if err := p.finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if keys, _ := readSitemapKeys(t, w); !eqKeys(keys, []string{"a"}) {
+		t.Fatalf("finish did not write with checkpointing disabled: %v", keys)
+	}
+}
