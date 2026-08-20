@@ -70,6 +70,49 @@ func TestAddForumThread(t *testing.T) {
 	}
 }
 
+// TestAddRelativeWorkDir covers the shape a relative --work-dir produces: 7z
+// keeps the whole prefix of a relative spec, which used to bake
+// "wikit_data/<wiki>/pages/<name>/" into every member and break the incremental
+// scan that parses member names back into revision numbers.
+func TestAddRelativeWorkDir(t *testing.T) {
+	if _, err := Bin(); err != nil {
+		t.Skipf("no 7z available: %v", err)
+	}
+	base := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(base); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	// Exactly what wiki.WikiDot builds with a relative workDir.
+	dir := filepath.Join("wikit_data", "some-wiki", "pages", "somepage")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"0.txt", "1.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("content "+n), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := filepath.Join("wikit_data", "some-wiki", "pages", "somepage.7z")
+	if err := Add(archive, filepath.Join(dir, "*.txt"), false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := List(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(got)
+	want := []string{"0.txt", "1.txt"}
+	if !equal(got, want) {
+		t.Fatalf("members = %v, want %v (relative workDir must not leak into the archive)", got, want)
+	}
+}
+
 func equal(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

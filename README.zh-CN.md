@@ -100,6 +100,8 @@ wikit backup all                 # 备份 config.json 里的所有 wiki
 wikit backup <名字> [名字...]     # 备份指定的 wiki，用空格分隔多个wiki
                                  # 不在 config 里的名字会按
                                  # https://<名字>.wikidot.com 抓取
+wikit fixpage <名字> [名字...]    # 修复旧版本产生的压缩包
+                                 # （见“修复旧版本产生的压缩包”）
 ```
 
 ### 命令行参数（覆盖 config.json 的值）
@@ -120,6 +122,26 @@ wikit backup <名字> [名字...]     # 备份指定的 wiki，用空格分隔�
     --keep-removed       保留已从 sitemap 中消失的页面（不删除）
     --checkpoint-pages <n>   每隔多少页写一次断点（默认 50）
     --checkpoint-seconds <n> 每隔多少秒写一次断点（默认 30）
+```
+
+### 修复旧版本产生的压缩包
+
+在你平时执行备份的目录下跑一次：
+
+```
+wikit fixpage <名字> [名字...]    # 修复一个或多个 wiki
+wikit fixpage all                # 修复 config.json 里的所有 wiki
+```
+
+`pages/*.7z` 和 `forum/**/*.7z` 都会被重建，压缩包位置的解析方式与备份完全一致
+（`base_directory`，可用 `--base-dir` 覆盖）。已经是正确结构的压缩包不会被改动，
+所以这条命令可以重复执行；每个包都是先在临时目录里重建、完成后才换上去的，文件
+内容逐字节保持不变。
+
+```
+-c, --config <路径>      配置文件（默认 ./config.json 或 $WIKIT_CONFIG）
+    --base-dir <路径>    覆盖 base_directory
+    --dry-run            只列出需要修复的压缩包，不写入
 ```
 
 ### 断点续传

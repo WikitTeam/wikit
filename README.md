@@ -104,6 +104,8 @@ wikit backup all                 # back up every wiki in config.json
 wikit backup <name> [name...]    # back up specific wikis, Separate multiple wikis with spaces
                                  # a name not in the config is fetched from
                                  # https://<name>.wikidot.com
+wikit fixpage <name> [name...]   # repair archives written by older wikit builds
+                                 # (see "Repairing archives from older builds")
 ```
 
 ### Flags (override config.json values)
@@ -124,6 +126,28 @@ wikit backup <name> [name...]    # back up specific wikis, Separate multiple wik
     --keep-removed       keep pages that disappeared from the sitemap
     --checkpoint-pages <n>   pages between resume checkpoints (default 50)
     --checkpoint-seconds <n> seconds between resume checkpoints (default 30)
+```
+
+### Repairing archives from older builds
+
+Run this once from the directory you normally back up from:
+
+```
+wikit fixpage <name> [name...]   # repair one or more wikis
+wikit fixpage all                # repair every wiki in config.json
+```
+
+It rebuilds both `pages/*.7z` and `forum/**/*.7z`, resolving the archive
+location exactly as a backup would (`base_directory`, overridable with
+`--base-dir`). Archives already in the correct layout are left untouched, so
+the command is safe to re-run; each archive is rebuilt in a temporary
+directory and swapped in only once complete, and file contents are preserved
+byte for byte.
+
+```
+-c, --config <path>      config file (default ./config.json or $WIKIT_CONFIG)
+    --base-dir <path>    override base_directory
+    --dry-run            list the archives that need repair without writing
 ```
 
 ### Resuming an interrupted backup

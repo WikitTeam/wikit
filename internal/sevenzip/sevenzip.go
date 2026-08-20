@@ -11,6 +11,7 @@ package sevenzip
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -44,21 +45,65 @@ func Bin() (string, error) {
 // the archive at archivePath, creating or updating it. When recursive is true,
 // subdirectories are included (-r). This mirrors the original's two call sites:
 // page revisions use "<dir>/*.txt" (non-recursive) and forum threads use
-// "<dir>/*.*" (recursive). 7z stores members relative to the wildcard base, so
-// e.g. pages/<name>/*.txt yields bare "<rev>.txt" members.
+// "<dir>/*.*" (recursive), and members must come out as bare "<rev>.txt" and
+// "<post>/<rev>.html" respectively -- that is both the reference layout and what
+// the incremental scan parses back out of existing archives.
+//
+// 7z only strips the wildcard's directory prefix when the spec is absolute; with
+// a relative spec (which is what a relative workDir produces) it stores the whole
+// prefix, e.g. "wikit_data/<wiki>/pages/<name>/0.txt". So instead of trusting the
+// spec's shape, run 7z inside the directory being packed and pass a bare pattern.
 func Add(archivePath, fileSpec string, recursive bool) error {
 	bin, err := Bin()
 	if err != nil {
 		return err
 	}
-	args := []string{"a", archivePath, fileSpec, "-y", "-bso0", "-bsp0"}
+	// The archive and the binary are resolved absolutely because cmd.Dir moves
+	// the process's working directory to the packed directory.
+	absArchive, err := filepath.Abs(archivePath)
+	if err != nil {
+		return err
+	}
+	if strings.ContainsAny(bin, `/\`) {
+		if absBin, err := filepath.Abs(bin); err == nil {
+			bin = absBin
+		}
+	}
+	baseDir, pattern := filepath.Split(fileSpec)
+
+	args := []string{"a", absArchive, pattern, "-y", "-bso0", "-bsp0"}
 	if recursive {
 		args = append(args, "-r")
 	}
 	cmd := exec.Command(bin, args...)
+	cmd.Dir = baseDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("7z add failed: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Extract unpacks every member of archivePath into destDir, keeping the member
+// paths (7z "x"). destDir is created by 7z if missing. Used by the archive
+// repair pass, which unpacks a mislaid archive before rebuilding it.
+func Extract(archivePath, destDir string) error {
+	bin, err := Bin()
+	if err != nil {
+		return err
+	}
+	absArchive, err := filepath.Abs(archivePath)
+	if err != nil {
+		return err
+	}
+	absDest, err := filepath.Abs(destDir)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(bin, "x", absArchive, "-o"+absDest, "-y", "-bso0", "-bsp0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("7z extract failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

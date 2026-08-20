@@ -95,6 +95,18 @@ func LogError(wiki, msg string) {
 	emitLog(os.Stderr, "ERROR", wiki, msg)
 }
 
+// Log emits a line at the given level ("INFO", "WARN", "ERROR") in the shared
+// per-wiki format, so commands outside the backup path (such as the archive
+// repair) produce identically-shaped output. Anything above INFO goes to
+// stderr.
+func Log(level, wiki, msg string) {
+	out := os.Stdout
+	if level != "INFO" {
+		out = os.Stderr
+	}
+	emitLog(out, level, wiki, msg)
+}
+
 func (w *WikiDot) delay() {
 	if w.delayMs > 0 {
 		time.Sleep(time.Duration(w.delayMs) * time.Millisecond)

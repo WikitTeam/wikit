@@ -7,6 +7,9 @@
 //	wikit backup all                 back up every wiki listed in config.json
 //	wikit backup <name> [name...]    back up specific wikis (a name not in the
 //	                                 config is fetched from https://<name>.wikidot.com)
+//	wikit fixpage <name> [name...]   repair archives written by older wikit builds,
+//	                                 whose members kept the work-directory prefix
+//	                                 ("all" repairs every wiki in the config)
 //
 // Override flags (defaults come from config.json):
 //
@@ -48,6 +51,11 @@ func main() {
 	switch os.Args[1] {
 	case "backup":
 		if err := runBackup(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "wikit: %v\n", err)
+			os.Exit(1)
+		}
+	case "fixpage":
+		if err := runFix(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "wikit: %v\n", err)
 			os.Exit(1)
 		}
@@ -223,6 +231,9 @@ func usage() {
 Usage:
   wikit backup all                  back up every wiki in config.json
   wikit backup <name> [name...]     back up specific wikis
+  wikit fixpage all                 repair old archives for every wiki in config.json
+  wikit fixpage <name> [name...]    repair old archives whose members kept the
+                                    work-directory prefix (page + forum archives)
   wikit install                     install wikit to your PATH (per-user)
   wikit uninstall                   remove the installed wikit
   wikit update                      upgrade to the latest release
@@ -243,5 +254,10 @@ Flags:
       --keep-removed      keep pages that disappeared from the sitemap
       --checkpoint-pages <n>   pages between resume checkpoints (default 50)
       --checkpoint-seconds <n> seconds between resume checkpoints (default 30)
+
+fixpage flags:
+  -c, --config <path>     config file (default ./config.json or $WIKIT_CONFIG)
+      --base-dir <path>   override base_directory
+      --dry-run           list the archives that need repair without writing
 `)
 }
