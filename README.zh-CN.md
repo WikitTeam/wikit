@@ -120,6 +120,7 @@ wikit fixpage <名字> [名字...]    # 修复旧版本产生的压缩包
     --refresh-votes      备份完成后，批量刷新页面评分/投票
     --scheme <s>         url 未写协议时的默认协议：http 或 https（默认 https）
     --keep-removed       保留已从 sitemap 中消失的页面（不删除）
+    --only <阶段>        只跑其中几个阶段：pages、files、forum
     --checkpoint-pages <n>   每隔多少页写一次断点（默认 50）
     --checkpoint-seconds <n> 每隔多少秒写一次断点（默认 30）
 ```
@@ -143,6 +144,19 @@ wikit fixpage all                # 修复 config.json 里的所有 wiki
     --base-dir <路径>    覆盖 base_directory
     --dry-run            只列出需要修复的压缩包，不写入
 ```
+
+### 只备份一部分内容
+
+`--only` 用来把一轮备份限制在三个阶段中的某几个：`pages`、
+`files`、`forum`。
+```
+wikit backup scp-wiki --only forum          # 只跑论坛
+wikit backup scp-wiki --only pages          # 只跑页面和历史版本
+wikit backup scp-wiki --only files          # 只补附件
+wikit backup scp-wiki --only pages,files    # 用逗号组合多个阶段
+```
+
+亦可以写进 `config.json`：`"only": "forum"`。
 
 ### 断点续传
 

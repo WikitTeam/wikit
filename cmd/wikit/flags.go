@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"wikit/internal/config"
+	"wikit/internal/wiki"
 )
 
 // backupOpts holds command-line overrides. A nil pointer means "not specified",
@@ -27,6 +28,7 @@ type backupOpts struct {
 	scheme        *string
 	refreshVotes  *bool
 	keepRemoved   *bool
+	only          *string
 
 	checkpointPages   *int
 	checkpointSeconds *int
@@ -60,6 +62,7 @@ func parseBackupArgs(args []string) (backupOpts, []string, error) {
 	refreshVotes := fs.Bool("refresh-votes", false, "after backup, bulk-refresh page ratings/votes via ListPages")
 	scheme := fs.String("scheme", "https", "default scheme for wikis whose url omits one: http or https")
 	keepRemoved := fs.Bool("keep-removed", false, "keep locally-archived pages that vanished from the sitemap")
+	only := fs.String("only", "", "restrict the run to some stages: pages, files, forum (comma-separated) or all")
 	checkpointPages := fs.Int("checkpoint-pages", 50, "pages between resume checkpoints (0 = no page requirement, negative = never checkpoint)")
 	checkpointSeconds := fs.Int("checkpoint-seconds", 30, "seconds between resume checkpoints (0 = no time requirement, negative = never checkpoint)")
 
@@ -111,6 +114,12 @@ func parseBackupArgs(args []string) (backupOpts, []string, error) {
 	if setFlags["keep-removed"] {
 		opts.keepRemoved = keepRemoved
 	}
+	if setFlags["only"] {
+		if _, err := wiki.ParseStages(*only); err != nil {
+			return opts, nil, fmt.Errorf("--only: %w", err)
+		}
+		opts.only = only
+	}
 	if setFlags["checkpoint-pages"] {
 		opts.checkpointPages = checkpointPages
 	}
@@ -138,6 +147,9 @@ func (o backupOpts) apply(cfg *config.Config) {
 	}
 	if o.keepRemoved != nil {
 		cfg.KeepRemoved = *o.keepRemoved
+	}
+	if o.only != nil {
+		cfg.Only = *o.only
 	}
 	if o.checkpointPages != nil {
 		cfg.CheckpointPages = o.checkpointPages

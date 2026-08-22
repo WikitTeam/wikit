@@ -25,6 +25,7 @@
 //	    --refresh-votes after backup, bulk-refresh page ratings/votes via ListPages
 //	    --scheme        default scheme for wikis whose url omits one (http/https)
 //	    --keep-removed  keep pages that disappeared from the sitemap
+//	    --only          restrict the run to some stages: pages, files, forum
 package main
 
 import (
@@ -252,6 +253,8 @@ Flags:
       --refresh-votes     after backup, bulk-refresh page ratings/votes via ListPages
       --scheme <s>        default scheme for wikis whose url omits one: http or https (default https)
       --keep-removed      keep pages that disappeared from the sitemap
+      --only <stages>     restrict the run to some stages: pages, files, forum
+                          (comma-separated, default all)
       --checkpoint-pages <n>   pages between resume checkpoints (default 50)
       --checkpoint-seconds <n> seconds between resume checkpoints (default 30)
 

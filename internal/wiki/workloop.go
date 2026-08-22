@@ -16,10 +16,12 @@ import (
 // the original's global lock.
 func (w *WikiDot) WorkLoop(sitemapLock *sync.Mutex) error {
 	w.initialize()
+	if !w.stages.all() {
+		w.logf("Restricted run: archiving %s only", w.stages)
+	}
 
 	// Site metadata.
 	sitemapLock.Lock()
-	w.logf("Fetching sitemap")
 	siteMeta, err := w.fetchSiteMetadata()
 	if err != nil {
 		sitemapLock.Unlock()
@@ -30,13 +32,53 @@ func (w *WikiDot) WorkLoop(sitemapLock *sync.Mutex) error {
 		return err
 	}
 	var entries []sitemapEntry
-	smErr := w.fetchSiteMap(w.url+"/sitemap.xml", &entries)
+	var smErr error
+	if w.stages.needSitemap() {
+		w.logf("Fetching sitemap")
+		smErr = w.fetchSiteMap(w.url+"/sitemap.xml", &entries)
+	}
 	sitemapLock.Unlock()
 	if smErr != nil {
 		return smErr
 	}
-	w.logf("Counting total %d pages", len(entries))
+	if w.stages.needSitemap() {
+		w.logf("Counting total %d pages", len(entries))
+	}
 
+	if w.stages.Pages {
+		if err := w.runPageStage(entries); err != nil {
+			return err
+		}
+	} else if w.stages.Files {
+		w.runFilesOnly(entries)
+	}
+
+	// Forums.
+	if w.stages.Forum {
+		w.runForums()
+	}
+
+	// Pending files and revisions.
+	if w.stages.Files {
+		w.processPendingFiles()
+	}
+	if w.stages.Pages {
+		w.processPendingRevisions()
+	}
+
+	// Final compression sweep of any leftover loose directories.
+	w.compressLeftovers()
+
+	// Optional: bulk-refresh ratings/votes for pages the sitemap scan skipped
+	// (voting doesn't bump lastmod, so it is invisible to the incremental scan).
+	if w.stages.Pages && w.refreshVotes {
+		w.refreshRatings(siteMeta.SiteID, entries)
+	}
+
+	return w.state.flush()
+}
+
+func (w *WikiDot) runPageStage(entries []sitemapEntry) error {
 	oldMap := w.readSiteMap()
 	if oldMap == nil {
 		w.logf("No previous sitemap was found, doing full scan")
@@ -72,27 +114,7 @@ func (w *WikiDot) WorkLoop(sitemapLock *sync.Mutex) error {
 	w.logf("Writing new sitemap...")
 	// Only pages that actually reached disk, so anything that failed into
 	// pending_pages is retried next run rather than skipped as up-to-date.
-	if err := w.progress.finish(); err != nil {
-		return err
-	}
-
-	// Forums.
-	w.runForums()
-
-	// Pending files and revisions.
-	w.processPendingFiles()
-	w.processPendingRevisions()
-
-	// Final compression sweep of any leftover loose directories.
-	w.compressLeftovers()
-
-	// Optional: bulk-refresh ratings/votes for pages the sitemap scan skipped
-	// (voting doesn't bump lastmod, so it is invisible to the incremental scan).
-	if w.refreshVotes {
-		w.refreshRatings(siteMeta.SiteID, entries)
-	}
-
-	return w.state.flush()
+	return w.progress.finish()
 }
 
 func (w *WikiDot) runPages(entries []sitemapEntry, oldMap map[string]*int64) {
@@ -226,6 +248,72 @@ func (w *WikiDot) processPage(entry sitemapEntry, oldMap map[string]*int64) {
 	}
 }
 
+func (w *WikiDot) runFilesOnly(entries []sitemapEntry) {
+	w.logf("Fetching page files...")
+	tasks := make(chan sitemapEntry)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for e := range tasks {
+				w.processPageFiles(e.Name)
+			}
+		}()
+	}
+	for _, e := range entries {
+		tasks <- e
+	}
+	close(tasks)
+	wg.Wait()
+}
+
+func (w *WikiDot) processPageFiles(name string) {
+	metadata := w.readPageMetadata(name)
+	var pageID int64
+	var existing []FileMeta
+	if metadata != nil {
+		pageID = metadata.PageID
+		existing = metadata.Files
+	}
+	if pageID <= 0 {
+		pageMeta, err := w.fetchGeneric(name)
+		if err != nil {
+			w.errf("Encountered %v, skipping files of %s", err, name)
+			return
+		}
+		if pageMeta.PageID == nil {
+			return
+		}
+		pageID = *pageMeta.PageID
+	}
+
+	files := w.fetchFilesFor(pageID, existing)
+	w.delay()
+	if metadata == nil {
+		return
+	}
+	w.removeVanishedFiles(name, existing, files)
+	metadata.Files = files
+	_ = w.writePageMetadata(name, metadata)
+}
+
+func (w *WikiDot) removeVanishedFiles(name string, oldFiles, newFiles []FileMeta) {
+	for _, of := range oldFiles {
+		found := false
+		for _, nf := range newFiles {
+			if nf.FileID == of.FileID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			w.logf("File %d <%s> inside %s got removed", of.FileID, of.URL, name)
+			_ = os.Remove(filepath.Join(w.workDir, "files", name, strconv.FormatInt(of.FileID, 10)))
+		}
+	}
+}
+
 // buildAndRenew reconstructs page metadata via the appropriate branch and fetches
 // voters, files, lock status and new revisions, mirroring the original exactly so
 // the written field order matches.
@@ -288,24 +376,10 @@ func (w *WikiDot) buildAndRenew(name string, pageUpdate *int64, metadata *PageMe
 		}
 	}
 
-	for i := 0; i < 3; i++ {
+	if w.stages.Files {
 		oldFiles := newMeta.Files
-		nf := w.fetchFilesFor(newMeta.PageID, newMeta.Files)
-		newMeta.Files = nf
-		for _, of := range oldFiles {
-			found := false
-			for _, nfm := range nf {
-				if nfm.FileID == of.FileID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				w.logf("File %d <%s> inside %s got removed", of.FileID, of.URL, name)
-				_ = os.Remove(filepath.Join(w.workDir, "files", name, strconv.FormatInt(of.FileID, 10)))
-			}
-		}
-		break
+		newMeta.Files = w.fetchFilesFor(newMeta.PageID, newMeta.Files)
+		w.removeVanishedFiles(name, oldFiles, newMeta.Files)
 	}
 
 	for i := 0; i < 3; i++ {
@@ -423,15 +497,20 @@ func (w *WikiDot) processPendingRevisions() {
 // compressLeftovers compresses any remaining loose page/forum directories, as the
 // original does at the end of the run.
 func (w *WikiDot) compressLeftovers() {
-	w.logf("Compressing page revisions")
-	pagesDir := filepath.Join(w.workDir, "pages")
-	if entries, err := os.ReadDir(pagesDir); err == nil {
-		for _, e := range entries {
-			name := e.Name()
-			if e.IsDir() && !strings.HasPrefix(name, ".") {
-				_ = w.compressRevisions(name)
+	if w.stages.Pages {
+		w.logf("Compressing page revisions")
+		pagesDir := filepath.Join(w.workDir, "pages")
+		if entries, err := os.ReadDir(pagesDir); err == nil {
+			for _, e := range entries {
+				name := e.Name()
+				if e.IsDir() && !strings.HasPrefix(name, ".") {
+					_ = w.compressRevisions(name)
+				}
 			}
 		}
+	}
+	if !w.stages.Forum {
+		return
 	}
 	forumDir := filepath.Join(w.workDir, "forum")
 	if cats, err := os.ReadDir(forumDir); err == nil {

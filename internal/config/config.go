@@ -73,6 +73,8 @@ type Config struct {
 	// --checkpoint-seconds.
 	CheckpointPages   *int `json:"checkpoint_pages,omitempty"`
 	CheckpointSeconds *int `json:"checkpoint_seconds,omitempty"`
+
+	Only string `json:"only,omitempty"`
 }
 
 // Default returns the built-in configuration used when no config.json is

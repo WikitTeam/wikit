@@ -22,3 +22,24 @@ func TestResolveWikiURL(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBackupArgsOnly(t *testing.T) {
+	opts, targets, err := parseBackupArgs([]string{"--only", "forum", "scp-wiki"})
+	if err != nil {
+		t.Fatalf("parseBackupArgs returned %v", err)
+	}
+	if len(targets) != 1 || targets[0] != "scp-wiki" {
+		t.Errorf("targets = %v, want [scp-wiki]", targets)
+	}
+	if opts.only == nil || *opts.only != "forum" {
+		t.Fatalf("only = %v, want \"forum\"", opts.only)
+	}
+
+	if opts, _, err := parseBackupArgs([]string{"scp-wiki"}); err != nil || opts.only != nil {
+		t.Errorf("only = %v (err %v), want nil", opts.only, err)
+	}
+
+	if _, _, err := parseBackupArgs([]string{"--only", "revisions", "scp-wiki"}); err == nil {
+		t.Error("parseBackupArgs accepted --only revisions")
+	}
+}

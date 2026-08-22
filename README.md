@@ -124,6 +124,7 @@ wikit fixpage <name> [name...]   # repair archives written by older wikit builds
     --refresh-votes      after backup, bulk-refresh page ratings/votes
     --scheme <s>         default scheme for wikis whose url omits one (default https)
     --keep-removed       keep pages that disappeared from the sitemap
+    --only <stages>      restrict the run to pages, files and/or forum
     --checkpoint-pages <n>   pages between resume checkpoints (default 50)
     --checkpoint-seconds <n> seconds between resume checkpoints (default 30)
 ```
@@ -149,6 +150,19 @@ byte for byte.
     --base-dir <path>    override base_directory
     --dry-run            list the archives that need repair without writing
 ```
+
+### Backing up only part of a wiki
+
+`--only` limits a run to some of the three archiving stages — `pages`, `files` and `forum` .
+
+```
+wikit backup scp-wiki --only forum          # forum only
+wikit backup scp-wiki --only pages          # pages and revisions only
+wikit backup scp-wiki --only files          # files only 
+wikit backup scp-wiki --only pages,files    # combine stages with a comma
+```
+
+It can also be set in `config.json` as `"only": "forum"`.
 
 ### Resuming an interrupted backup
 

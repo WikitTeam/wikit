@@ -46,6 +46,11 @@ func Run(cfg *config.Config, wikis []config.WikiEntry) error {
 		return fmt.Errorf("initialize user list: %w", err)
 	}
 
+	stages, err := wiki.ParseStages(cfg.Only)
+	if err != nil {
+		return err
+	}
+
 	checkpoint := wiki.DefaultCheckpointPolicy()
 	if cfg.CheckpointPages != nil {
 		checkpoint.Pages = *cfg.CheckpointPages
@@ -72,7 +77,7 @@ func Run(cfg *config.Config, wikis []config.WikiEntry) error {
 			client := newClient()
 			defer client.Ratelimit.Stop()
 
-			w := wiki.New(entry.Name, entry.URL, cfg.BaseDirectory+"/"+entry.Name, client, users, delayMs, cfg.UltraFastIncremental, cfg.RefreshVotes, cfg.KeepRemoved, checkpoint)
+			w := wiki.New(entry.Name, entry.URL, cfg.BaseDirectory+"/"+entry.Name, client, users, delayMs, cfg.UltraFastIncremental, cfg.RefreshVotes, cfg.KeepRemoved, checkpoint, stages)
 			for i := 0; i < 40; i++ {
 				if err := w.FetchToken(false); err != nil {
 					if he, ok := err.(*httpc.HTTPError); ok && he.Status == 500 {
