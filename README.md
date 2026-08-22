@@ -166,9 +166,7 @@ It can also be set in `config.json` as `"only": "forum"`.
 
 ### Resuming an interrupted backup
 
-A backup records its progress in `meta/sitemap.json` as it goes, so a run that is
-killed part-way (Ctrl+C, a crash, a lost connection) picks up where it stopped
-instead of re-downloading every page's revisions from scratch on the next run.
+`wikit` will automatically resume from where it was interrupted. The following is an optional setting that records the backup progress in `meta/sitemap.json` during the backup process.However, `wikit`'s resume functionality is independent of this option. Even if this option is not enabled, an interrupted backup will still automatically resume from where it left off.This option is only used to record the `sitemap` progress, allowing `wikit` to resume the backup more quickly the next time it is started.
 
 A checkpoint is written once **both** thresholds are crossed — by default 50
 newly-archived pages *and* 30 seconds since the last one. This flag affects only page versions that have already been converted to 7z files. Page folders that have not yet been converted are unaffected by interruptions and will automatically resume from where they left off.
