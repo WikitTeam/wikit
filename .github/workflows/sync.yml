@@ -26,50 +26,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync releases and all assets
+      - name: Sync releases (update in place, no duplicates)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 拿上游所有 release 的 tag（gh api 不会返回 HTML）
           tags=$(gh api repos/kakushi-w/wikit/releases --jq '.[].tag_name')
 
           for tag in $tags; do
-            echo "Processing release: $tag"
+            echo "=== Processing release: $tag ==="
 
-            # 单个 release 详情，JSON 安全
             release_json=$(gh api repos/kakushi-w/wikit/releases/tags/$tag)
-            echo "$release_json" | jq -e . >/dev/null || {
-              echo "  Invalid JSON, skip"; continue
-            }
+            echo "$release_json" | jq -e . >/dev/null || { echo "  Invalid JSON, skip"; continue; }
 
             name=$(echo "$release_json" | jq -r '.name // .tag_name')
             body=$(echo "$release_json" | jq -r '.body // ""')
             draft=$(echo "$release_json" | jq -r '.draft')
             prerelease=$(echo "$release_json" | jq -r '.prerelease')
 
-            # 清掉旧 release + 旧 tag
-            gh release delete "$tag" --repo WikitTeam/wikit --yes 2>/dev/null || true
-            git push --delete origin "refs/tags/$tag" 2>/dev/null || true
+            # 检查目标 release 是否已存在
+            existing=$(gh release view "$tag" --repo WikitTeam/wikit 2>/dev/null)
+            if [ -z "$existing" ]; then
+              echo "  Release does not exist yet, creating..."
+              gh release create "$tag" \
+                --repo WikitTeam/wikit \
+                --title "$name" \
+                --notes "$body" \
+                --draft="$draft" \
+                --prerelease="$prerelease"
+            else
+              echo "  Release already exists, updating in place (no duplicate)..."
+            fi
 
-            # 建 release 壳子
-            gh release create "$tag" \
-              --repo WikitTeam/wikit \
-              --title "$name" \
-              --notes "$body" \
-              --draft="$draft" \
-              --prerelease="$prerelease"
-
-            # 同步全部 assets（含 5 个二进制 + SHA256SUMS + 2 个源码包）
-            asset_count=$(echo "$release_json" | jq '.assets | length')
-            echo "  Upstream assets: $asset_count"
+            # 上传附件 —— 同名自动覆盖，不会新建 release
             echo "$release_json" | jq -c '.assets[]' | while IFS= read -r asset; do
               fname=$(echo "$asset" | jq -r '.name')
               dl=$(echo "$asset" | jq -r '.browser_download_url')
-              echo "  Downloading: $fname"
+              echo "  Uploading: $fname"
               curl -fsSL "$dl" -o "$fname"
               gh release upload "$tag" "$fname" --repo WikitTeam/wikit
               rm -f "$fname"
             done
 
-            echo "Synced release: $tag"
+            echo "Done: $tag"
           done
