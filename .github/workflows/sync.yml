@@ -26,28 +26,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync releases in place (no duplicates, no leftovers)
+      - name: Sync releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -uo pipefail
-
-          # 拉取上游所有 release tag
           tags=$(gh api repos/kakushi-w/wikit/releases --jq '.[].tag_name')
 
           for tag in $tags; do
             echo "=== $tag ==="
 
-            # 取上游 release JSON（gh api 保证返回合法 JSON）
             release_json=$(gh api repos/kakushi-w/wikit/releases/tags/$tag)
-            echo "$release_json" | jq -e . >/dev/null 2>&1 || { echo "  [skip] invalid JSON"; continue; }
+            echo "$release_json" | jq -e . >/dev/null 2>&1 || { echo "  skip: invalid JSON"; continue; }
 
             name=$(echo "$release_json" | jq -r '.name // .tag_name')
             body=$(echo "$release_json" | jq -r '.body // ""')
             draft=$(echo "$release_json" | jq -r '.draft')
             prerelease=$(echo "$release_json" | jq -r '.prerelease')
 
-            # ① 仅当 release 不存在时才创建一次
             if ! gh release view "$tag" --repo WikitTeam/wikit >/dev/null 2>&1; then
               echo "  creating release..."
               gh release create "$tag" \
@@ -55,33 +50,19 @@ jobs:
                 --title "$name" \
                 --notes "$body" \
                 --draft="$draft" \
-                --prerelease="$prerelease" || { echo "  [warn] create failed"; continue; }
+                --prerelease="$prerelease"
             else
-              echo "  already exists, updating in place"
+              echo "  already exists"
             fi
 
-            # ② 收集上游附件清单
-            assets=$(echo "$release_json" | jq -c '.assets[]')
-
-            # 上游有的、但本地已多出来的（上游删了附件 → 这里也删）
-            up_names=$(echo "$assets" | jq -r '.["name"]' | sort -u)
-            for loc in $(gh release list --repo WikitTeam/wikit --json assets,tagName --jq '.[].assets[]?.name' 2>/dev/null | sort -u); do
-              echo "$up_names" | grep -qx "$loc" || {
-                echo "  removing stale asset: $loc"
-                gh release delete-asset "$tag" "$loc" --repo WikitTeam/wikit --yes 2>/dev/null || true
-              }
-            done
-
-            # ③ 并发下载 + 上传（并行 5 路，单个失败不整批挂）
-            echo "$assets" | jq -c '.[]' | while IFS= read -r a; do
-              echo "$a" | jq -r '"\(.name)\t\(.browser_download_url)"'
-            done | while IFS=$'\t' read -r fname dl; do
+            echo "$release_json" | jq -c '.assets[]' | while IFS= read -r asset; do
+              fname=$(echo "$asset" | jq -r '.name')
+              dl=$(echo "$asset" | jq -r '.browser_download_url')
+              echo "  $fname"
               curl -fsSL "$dl" -o "$fname"
-              echo "$fname" | xargs -P 5 -I{} gh release upload "$tag" {} --repo WikitTeam/wikit
+              gh release upload "$tag" "$fname" --repo WikitTeam/wikit
               rm -f "$fname"
             done
 
-            echo "  ✓ $tag synced"
+            echo "  done"
           done
-
-          echo "All done."
