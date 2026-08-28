@@ -2,7 +2,7 @@ name: Sync upstream
 
 on:
   schedule:
-    - cron: '0 0 */3 * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -26,45 +26,75 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync releases and assets
+      - name: Sync releases with retry
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tags=$(curl -s -H "Accept: application/vnd.github+json" \
-                   https://api.github.com/repos/kakushi-w/wikit/releases \
-                   | jq -r '.[].tag_name')
+          # 最多尝试 10 次，每次间隔 30s，给上游 workflow 跑完的时间
+          for attempt in $(seq 1 10); do
+            echo "=== Attempt $attempt ==="
 
-          for tag in $tags; do
-            echo "Processing release: $tag"
+            tags=$(curl -s -H "Accept: application/vnd.github+json" \
+                     https://api.github.com/repos/kakushi-w/wikit/releases \
+                     | jq -r '.[].tag_name')
 
-            release=$(curl -s -H "Accept: application/vnd.github+json" \
-                        https://api.github.com/repos/kakushi-w/wikit/releases/tags/$tag)
+            if [ -z "$tags" ]; then
+              echo "No releases found upstream yet, waiting..."
+              sleep 30
+              continue
+            fi
 
-            name=$(echo "$release" | jq -r '.name // .tag_name')
-            body=$(echo "$release" | jq -r '.body // ""')
-            draft=$(echo "$release" | jq -r '.draft')
-            prerelease=$(echo "$release" | jq -r '.prerelease')
+            sync_ok=1
+            for tag in $tags; do
+              echo "Processing release: $tag"
 
-            gh release delete "$tag" --repo WikitTeam/wikit --yes 2>/dev/null || true
-            git push --delete origin "refs/tags/$tag" 2>/dev/null || true
+              release=$(curl -s -H "Accept: application/vnd.github+json" \
+                          https://api.github.com/repos/kakushi-w/wikit/releases/tags/$tag)
 
-            gh release create "$tag" \
-              --repo WikitTeam/wikit \
-              --title "$name" \
-              --notes "$body" \
-              --draft="$draft" \
-              --prerelease="$prerelease"
+              asset_count=$(echo "$release" | jq '.assets | length' 2>/dev/null || echo 0)
+              if [ "$asset_count" -eq 0 ]; then
+                echo "  Assets not ready yet (attempt $attempt), waiting..."
+                sync_ok=0
+                break
+              fi
 
-            echo "$release" | jq -c '.assets[]?[]' | while IFS= read -r asset; do
-              url=$(echo "$asset" | jq -r '.url')
-              fname=$(echo "$asset" | jq -r '.name')
-              echo "  Downloading asset: $fname"
-              curl -sL \
-                -H "Accept: application/octet-stream" \
-                "$url" -o "$fname"
-              gh release upload "$tag" "$fname" --repo WikitTeam/wikit
-              rm -f "$fname"
+              name=$(echo "$release" | jq -r '.name // .tag_name')
+              body=$(echo "$release" | jq -r '.body // ""')
+              draft=$(echo "$release" | jq -r '.draft')
+              prerelease=$(echo "$release" | jq -r '.prerelease')
+
+              gh release delete "$tag" --repo WikitTeam/wikit --yes 2>/dev/null || true
+              git push --delete origin "refs/tags/$tag" 2>/dev/null || true
+
+              gh release create "$tag" \
+                --repo WikitTeam/wikit \
+                --title "$name" \
+                --notes "$body" \
+                --draft="$draft" \
+                --prerelease="$prerelease"
+
+              echo "$release" | jq -c '.assets[]?[]' | while IFS= read -r asset; do
+                url=$(echo "$asset" | jq -r '.url')
+                fname=$(echo "$asset" | jq -r '.name')
+                echo "  Downloading asset: $fname"
+                curl -sL --retry 3 --retry-delay 5 \
+                  -H "Accept: application/octet-stream" \
+                  "$url" -o "$fname"
+                gh release upload "$tag" "$fname" --repo WikitTeam/wikit
+                rm -f "$fname"
+              done
+
+              echo "  Synced: $tag"
             done
 
-            echo "Synced release: $tag"
+            if [ "$sync_ok" -eq 1 ]; then
+              echo "All releases synced successfully!"
+              exit 0
+            fi
+
+            echo "Some assets not ready, waiting 30s before retry..."
+            sleep 30
           done
+
+          echo "Failed to sync after 10 attempts"
+          exit 1
