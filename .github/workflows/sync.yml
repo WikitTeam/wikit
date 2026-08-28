@@ -3,17 +3,15 @@ name: Sync from kakushi-w/wikit
 on:
   schedule:
     # 每 3 天 UTC 0 点执行
-    - cron: '25 1 */3 * *'
+    - cron: '0 0 */3 * *'
   workflow_dispatch:
 
 permissions:
   contents: write
   actions: write
-  workflows: write
   packages: write
   issues: write
   pull-requests: write
-  releases: write
 
 jobs:
   sync:
@@ -34,16 +32,19 @@ jobs:
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/kakushi-w/wikit.git
-          git fetch upstream
+          git fetch upstream --tags
 
-      - name: Sync default branch (main/master)
+      - name: Detect upstream default branch
+        id: default_branch
         run: |
-          DEFAULT_BRANCH=$(git remote show upstream | awk '/HEAD branch/ {print $NF}')
-          echo "Upstream default branch: $DEFAULT_BRANCH"
+          BRANCH=$(git remote show upstream | awk '/HEAD branch/ {print $NF}')
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
-          git checkout $DEFAULT_BRANCH
-          git pull upstream $DEFAULT_BRANCH
-          git push origin $DEFAULT_BRANCH
+      - name: Sync default branch
+        run: |
+          git checkout ${{ steps.default_branch.outputs.branch }}
+          git pull upstream ${{ steps.default_branch.outputs.branch }}
+          git push origin ${{ steps.default_branch.outputs.branch }}
 
       - name: Sync all branches
         run: |
@@ -62,13 +63,36 @@ jobs:
 
     steps:
       - name: Sync releases from upstream
-        uses: softprops/action-gh-release@v2
+        uses: actions/github-script@v7
         with:
-          repository: WikitTeam/wikit
-          releases: true
-          prerelease: true
-          draft: false
-          generate_release_notes: false
-          tag_name: ${{ steps.get_releases.outputs.tag }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          github-token: ${{ secrets.SYNC_TOKEN }}
+          script: |
+            const upstream = 'kakushi-w/wikit';
+            const target = 'WikitTeam/wikit';
+
+            const releases = await github.rest.repos.listReleases({
+              owner: 'kakushi-w',
+              repo: 'wikit',
+              per_page: 100
+            });
+
+            for (const release of releases.data) {
+              try {
+                await github.rest.repos.createRelease({
+                  owner: 'WikitTeam',
+                  repo: 'wikit',
+                  tag_name: release.tag_name,
+                  name: release.name,
+                  body: release.body,
+                  draft: release.draft,
+                  prerelease: release.prerelease
+                });
+                console.log(`Synced release: ${release.tag_name}`);
+              } catch (e) {
+                if (e.status === 422) {
+                  console.log(`Release already exists: ${release.tag_name}`);
+                } else {
+                  throw e;
+                }
+              }
+            }
