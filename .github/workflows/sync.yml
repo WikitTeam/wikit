@@ -26,74 +26,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync releases with retry
+      - name: Sync releases and all assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for attempt in $(seq 1 10); do
-            echo "=== Attempt $attempt ==="
+          # 拿上游所有 release 的 tag（gh api 不会返回 HTML）
+          tags=$(gh api repos/kakushi-w/wikit/releases --jq '.[].tag_name')
 
-            tags=$(curl -s -H "Accept: application/vnd.github+json" \
-                     https://api.github.com/repos/kakushi-w/wikit/releases \
-                     | jq -r '.[].tag_name')
+          for tag in $tags; do
+            echo "Processing release: $tag"
 
-            if [ -z "$tags" ]; then
-              echo "No releases found upstream yet, waiting..."
-              sleep 30
-              continue
-            fi
+            # 单个 release 详情，JSON 安全
+            release_json=$(gh api repos/kakushi-w/wikit/releases/tags/$tag)
+            echo "$release_json" | jq -e . >/dev/null || {
+              echo "  Invalid JSON, skip"; continue
+            }
 
-            sync_ok=1
-            for tag in $tags; do
-              echo "Processing release: $tag"
+            name=$(echo "$release_json" | jq -r '.name // .tag_name')
+            body=$(echo "$release_json" | jq -r '.body // ""')
+            draft=$(echo "$release_json" | jq -r '.draft')
+            prerelease=$(echo "$release_json" | jq -r '.prerelease')
 
-              release=$(curl -s -H "Accept: application/vnd.github+json" \
-                          https://api.github.com/repos/kakushi-w/wikit/releases/tags/$tag)
+            # 清掉旧 release + 旧 tag
+            gh release delete "$tag" --repo WikitTeam/wikit --yes 2>/dev/null || true
+            git push --delete origin "refs/tags/$tag" 2>/dev/null || true
 
-              asset_count=$(echo "$release" | jq '.assets | length' 2>/dev/null || echo 0)
-              if [ "$asset_count" -eq 0 ]; then
-                echo "  Assets not ready yet (attempt $attempt), waiting..."
-                sync_ok=0
-                break
-              fi
+            # 建 release 壳子
+            gh release create "$tag" \
+              --repo WikitTeam/wikit \
+              --title "$name" \
+              --notes "$body" \
+              --draft="$draft" \
+              --prerelease="$prerelease"
 
-              name=$(echo "$release" | jq -r '.name // .tag_name')
-              body=$(echo "$release" | jq -r '.body // ""')
-              draft=$(echo "$release" | jq -r '.draft')
-              prerelease=$(echo "$release" | jq -r '.prerelease')
-
-              gh release delete "$tag" --repo WikitTeam/wikit --yes 2>/dev/null || true
-              git push --delete origin "refs/tags/$tag" 2>/dev/null || true
-
-              gh release create "$tag" \
-                --repo WikitTeam/wikit \
-                --title "$name" \
-                --notes "$body" \
-                --draft="$draft" \
-                --prerelease="$prerelease"
-
-              echo "$release" | jq -c '.assets[]?[]' | while IFS= read -r asset; do
-                url=$(echo "$asset" | jq -r '.url')
-                fname=$(echo "$asset" | jq -r '.name')
-                echo "  Downloading asset: $fname"
-                curl -sL --retry 3 --retry-delay 5 \
-                  -H "Accept: application/octet-stream" \
-                  "$url" -o "$fname"
-                gh release upload "$tag" "$fname" --repo WikitTeam/wikit
-                rm -f "$fname"
-              done
-
-              echo "  Synced: $tag"
+            # 同步全部 assets（含 5 个二进制 + SHA256SUMS + 2 个源码包）
+            asset_count=$(echo "$release_json" | jq '.assets | length')
+            echo "  Upstream assets: $asset_count"
+            echo "$release_json" | jq -c '.assets[]' | while IFS= read -r asset; do
+              fname=$(echo "$asset" | jq -r '.name')
+              dl=$(echo "$asset" | jq -r '.browser_download_url')
+              echo "  Downloading: $fname"
+              curl -fsSL "$dl" -o "$fname"
+              gh release upload "$tag" "$fname" --repo WikitTeam/wikit
+              rm -f "$fname"
             done
 
-            if [ "$sync_ok" -eq 1 ]; then
-              echo "All releases synced successfully!"
-              exit 0
-            fi
-
-            echo "Some assets not ready, waiting 30s before retry..."
-            sleep 30
+            echo "Synced release: $tag"
           done
-
-          echo "Failed to sync after 10 attempts"
-          exit 1
