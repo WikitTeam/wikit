@@ -24,24 +24,26 @@ jobs:
     needs: sync-code
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Sync releases and assets
         env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tags=$(curl -s https://api.github.com/repos/kakushi-w/wikit/releases | jq -r '.[].tag_name')
+          tags=$(curl -s -H "Accept: application/vnd.github+json" \
+                   https://api.github.com/repos/kakushi-w/wikit/releases \
+                   | jq -r '.[].tag_name')
 
           for tag in $tags; do
-            release=$(curl -s https://api.github.com/repos/kakushi-w/wikit/releases/tags/$tag)
+            echo "Processing release: $tag"
+
+            release=$(curl -s -H "Accept: application/vnd.github+json" \
+                        https://api.github.com/repos/kakushi-w/wikit/releases/tags/$tag)
 
             name=$(echo "$release" | jq -r '.name // .tag_name')
             body=$(echo "$release" | jq -r '.body // ""')
             draft=$(echo "$release" | jq -r '.draft')
             prerelease=$(echo "$release" | jq -r '.prerelease')
-
-            echo "Processing release: $tag"
 
             gh release delete "$tag" --repo WikitTeam/wikit --yes 2>/dev/null || true
             git push --delete origin "refs/tags/$tag" 2>/dev/null || true
@@ -57,7 +59,7 @@ jobs:
               url=$(echo "$asset" | jq -r '.url')
               fname=$(echo "$asset" | jq -r '.name')
               echo "  Downloading asset: $fname"
-              curl -sL -H "Authorization: Bearer ${{ secrets.SYNC_TOKEN }}" \
+              curl -sL \
                 -H "Accept: application/octet-stream" \
                 "$url" -o "$fname"
               gh release upload "$tag" "$fname" --repo WikitTeam/wikit
