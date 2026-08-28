@@ -1,0 +1,74 @@
+name: Sync from kakushi-w/wikit
+
+on:
+  schedule:
+    # 每 3 天 UTC 0 点执行
+    - cron: '25 1 */3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  workflows: write
+  packages: write
+  issues: write
+  pull-requests: write
+  releases: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/kakushi-w/wikit.git
+          git fetch upstream
+
+      - name: Sync default branch (main/master)
+        run: |
+          DEFAULT_BRANCH=$(git remote show upstream | awk '/HEAD branch/ {print $NF}')
+          echo "Upstream default branch: $DEFAULT_BRANCH"
+
+          git checkout $DEFAULT_BRANCH
+          git pull upstream $DEFAULT_BRANCH
+          git push origin $DEFAULT_BRANCH
+
+      - name: Sync all branches
+        run: |
+          for branch in $(git branch -r | grep 'upstream/' | grep -v 'HEAD' | sed 's|upstream/||'); do
+            git checkout -B $branch upstream/$branch
+            git push origin $branch
+          done
+
+      - name: Sync tags
+        run: |
+          git push --tags
+
+  sync-releases:
+    needs: sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Sync releases from upstream
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: WikitTeam/wikit
+          releases: true
+          prerelease: true
+          draft: false
+          generate_release_notes: false
+          tag_name: ${{ steps.get_releases.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.SYNC_TOKEN }}
