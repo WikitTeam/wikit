@@ -30,7 +30,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 最多尝试 10 次，每次间隔 30s，给上游 workflow 跑完的时间
           for attempt in $(seq 1 10); do
             echo "=== Attempt $attempt ==="
 
