@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   sync-code:
-    runs-on: ubuntu-latest
+    runs-on: ubbo-latest
     steps:
       - name: Sync fork from upstream
         env:
@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync releases
+      - name: Sync releases (update in place, no duplicates)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -43,26 +43,27 @@ jobs:
             draft=$(echo "$release_json" | jq -r '.draft')
             prerelease=$(echo "$release_json" | jq -r '.prerelease')
 
-            if ! gh release view "$tag" --repo WikitTeam/wikit >/dev/null 2>&1; then
-              echo "  creating release..."
+            # 关键改动：release 已存在就跳过重建，只上传附件
+            if gh release view "$tag" --repo WikitTeam/wikit >/dev/null 2>&1; then
+              echo "  release exists, updating in place (no delete/create)"
+            else
+              echo "  release missing, creating..."
               gh release create "$tag" \
                 --repo WikitTeam/wikit \
                 --title "$name" \
                 --notes "$body" \
                 --draft="$draft" \
                 --prerelease="$prerelease"
-            else
-              echo "  already exists"
             fi
 
             echo "$release_json" | jq -c '.assets[]' | while IFS= read -r asset; do
               fname=$(echo "$asset" | jq -r '.name')
               dl=$(echo "$asset" | jq -r '.browser_download_url')
-              echo "  $fname"
+              echo "  uploading: $fname"
               curl -fsSL "$dl" -o "$fname"
-              gh release upload "$tag" "$fname" --repo WikitTeam/wikit
+              gh release upload "$tag" "$fname" --repo WikitTeam/wikit --clobber
               rm -f "$fname"
             done
 
-            echo "  done"
+            echo "  done: $tag"
           done
