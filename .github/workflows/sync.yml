@@ -43,19 +43,22 @@ jobs:
             draft=$(echo "$release_json" | jq -r '.draft')
             prerelease=$(echo "$release_json" | jq -r '.prerelease')
 
-            # 关键改动：release 已存在就跳过重建，只上传附件
+            # 已同步过的 release 直接跳过，不产生任何多余步骤
             if gh release view "$tag" --repo WikitTeam/wikit >/dev/null 2>&1; then
-              echo "  release exists, updating in place (no delete/create)"
-            else
-              echo "  release missing, creating..."
-              gh release create "$tag" \
-                --repo WikitTeam/wikit \
-                --title "$name" \
-                --notes "$body" \
-                --draft="$draft" \
-                --prerelease="$prerelease"
+              echo "  already synced, skipping (up to date)"
+              continue
             fi
 
+            # 只在首次缺失时创建一次
+            echo "  release missing, creating..."
+            gh release create "$tag" \
+              --repo WikitTeam/wikit \
+              --title "$name" \
+              --notes "$body" \
+              --draft="$draft" \
+              --prerelease="$prerelease"
+
+            # 同步全部 assets（含 5 个二进制 + SHA256SUMS）
             echo "$release_json" | jq -c '.assets[]' | while IFS= read -r asset; do
               fname=$(echo "$asset" | jq -r '.name')
               dl=$(echo "$asset" | jq -r '.browser_download_url')
