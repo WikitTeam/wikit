@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   sync-code:
-    runs-on: ubbo-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Sync fork from upstream
         env:
