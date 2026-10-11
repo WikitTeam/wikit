@@ -125,16 +125,18 @@ func (c *Client) do(method, rawURL string, opts *Options) ([]byte, error) {
 			return nil, err
 		}
 
-		if status == 301 || status == 302 {
+		if status == 301 || status == 302 || status == 303 || status == 307 || status == 308 {
 			if follow && location != "" && redirects < maxRedirects {
 				next, perr := resolveLocation(u, location)
 				if perr != nil {
 					return nil, &HTTPError{Status: status}
 				}
 				u = next
-				// After the first hop a redirect target is fetched with GET.
-				method = "GET"
-				opts = &Options{Headers: opts.Headers}
+				// 307/308 keep the method and body; 301/302/303 switch to GET.
+				if status != 307 && status != 308 {
+					method = "GET"
+					opts = &Options{Headers: opts.Headers}
+				}
 				continue
 			}
 			return nil, &HTTPError{Status: status}
