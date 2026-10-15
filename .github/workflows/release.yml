@@ -1,8 +1,3 @@
-# Builds wikit for all platforms and publishes them as a GitHub Release whenever
-# a version tag (e.g. v1.2.3) is pushed. Users then upgrade with `wikit update`.
-#
-# Set REPO below (or rely on github.repository) so the built binaries know where
-# to check for their own updates.
 name: release
 
 on:
@@ -21,10 +16,9 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
 
       - name: Build all platforms
-        working-directory: wikit-go
         env:
           REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
@@ -47,5 +41,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            wikit-go/dist/wikit-*
-            wikit-go/dist/SHA256SUMS
+            dist/wikit-*
+            dist/SHA256SUMS
