@@ -22,7 +22,8 @@
 //	    --user-cache    user info cache freshness (seconds)
 //	    --http-proxy    http proxy as host:port or host:port:user:password
 //	    --socks-proxy   socks proxy as host:port
-//	    --refresh-votes after backup, bulk-refresh page ratings/votes via ListPages
+//	    --refresh-votes after backup, bulk-refresh page ratings/votes via ListPages (default on)
+//	    --donot-refresh-votes skip the post-backup rating/vote refresh
 //	    --scheme        default scheme for wikis whose url omits one (http/https)
 //	    --keep-removed  keep pages that disappeared from the sitemap
 //	    --only          restrict the run to some stages: pages, files, forum
@@ -250,7 +251,8 @@ Flags:
       --user-cache <n>    user info cache freshness in seconds
       --http-proxy <s>    http proxy: host:port or host:port:user:password
       --socks-proxy <s>   socks proxy: host:port
-      --refresh-votes     after backup, bulk-refresh page ratings/votes via ListPages
+      --refresh-votes     after backup, bulk-refresh page ratings/votes via ListPages (default on)
+      --donot-refresh-votes skip the post-backup rating/vote refresh
       --scheme <s>        default scheme for wikis whose url omits one: http or https (default https)
       --keep-removed      keep pages that disappeared from the sitemap
       --only <stages>     restrict the run to some stages: pages, files, forum

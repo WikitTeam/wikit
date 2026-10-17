@@ -121,7 +121,8 @@ wikit fixpage <name> [name...]   # repair archives written by older wikit builds
     --http-proxy <s>     http proxy: host:port or host:port:user:password
     --socks-proxy <s>    socks proxy: host:port
     --no-update-check    do not check for a newer wikit release
-    --refresh-votes      after backup, bulk-refresh page ratings/votes
+    --refresh-votes      after backup, bulk-refresh page ratings/votes (default on)
+    --donot-refresh-votes  skip the post-backup rating/vote refresh
     --scheme <s>         default scheme for wikis whose url omits one (default https)
     --keep-removed       keep pages that disappeared from the sitemap
     --only <stages>      restrict the run to pages, files and/or forum
@@ -188,12 +189,15 @@ sitemap regardless of these settings.
 ### Refreshing ratings and votes
 
 The normal scan can't see rating/vote changes (they don't bump a page's
-timestamp), so stored ratings go stale. `--refresh-votes` updates them after the
-backup, rewriting only page metadata:
+timestamp), so stored ratings go stale. wikit therefore refreshes them by default
+after the backup, rewriting only page metadata. To skip it for one run:
 
 ```
-wikit backup scp-wiki --refresh-votes
+wikit backup scp-wiki --donot-refresh-votes
 ```
+
+Set `"refresh_votes": false` in `config.json` to turn it off permanently;
+`--refresh-votes` turns it back on for a run.
 
 ## Updating
 
@@ -220,7 +224,7 @@ one-line notice if a newer version is available — disable with
   "user_list_cache_freshness": 86400,
   "http_proxy": null,
   "socks_proxy": null,
-  "refresh_votes": false,
+  "refresh_votes": true,
   "scheme": "https",
   "keep_removed": false,
   "checkpoint_pages": 50,
