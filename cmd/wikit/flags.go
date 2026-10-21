@@ -59,7 +59,8 @@ func parseBackupArgs(args []string) (backupOpts, []string, error) {
 	httpProxy := fs.String("http-proxy", "", "http proxy host:port[:user:password]")
 	socksProxy := fs.String("socks-proxy", "", "socks proxy host:port")
 	noUpdateCheck := fs.Bool("no-update-check", false, "do not check for a newer wikit release")
-	refreshVotes := fs.Bool("refresh-votes", false, "after backup, bulk-refresh page ratings/votes via ListPages")
+	refreshVotes := fs.Bool("refresh-votes", false, "after backup, bulk-refresh page ratings/votes via ListPages (default on)")
+	noRefreshVotes := fs.Bool("donot-refresh-votes", false, "skip the post-backup rating/vote refresh")
 	scheme := fs.String("scheme", "https", "default scheme for wikis whose url omits one: http or https")
 	keepRemoved := fs.Bool("keep-removed", false, "keep locally-archived pages that vanished from the sitemap")
 	only := fs.String("only", "", "restrict the run to some stages: pages, files, forum (comma-separated) or all")
@@ -108,8 +109,15 @@ func parseBackupArgs(args []string) (backupOpts, []string, error) {
 	if setFlags["socks-proxy"] {
 		opts.socksProxy = socksProxy
 	}
+	if setFlags["refresh-votes"] && setFlags["donot-refresh-votes"] && *refreshVotes && *noRefreshVotes {
+		return opts, nil, fmt.Errorf("--refresh-votes and --donot-refresh-votes cannot be used together")
+	}
 	if setFlags["refresh-votes"] {
 		opts.refreshVotes = refreshVotes
+	}
+	if setFlags["donot-refresh-votes"] {
+		v := !*noRefreshVotes
+		opts.refreshVotes = &v
 	}
 	if setFlags["keep-removed"] {
 		opts.keepRemoved = keepRemoved
@@ -143,7 +151,8 @@ func parseBackupArgs(args []string) (backupOpts, []string, error) {
 // when the corresponding flag is absent.
 func (o backupOpts) apply(cfg *config.Config) {
 	if o.refreshVotes != nil {
-		cfg.RefreshVotes = *o.refreshVotes
+		v := *o.refreshVotes
+		cfg.RefreshVotes = &v
 	}
 	if o.keepRemoved != nil {
 		cfg.KeepRemoved = *o.keepRemoved

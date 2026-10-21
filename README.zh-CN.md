@@ -117,7 +117,8 @@ wikit fixpage <名字> [名字...]    # 修复旧版本产生的压缩包
     --http-proxy <s>     http 代理：host:port 或 host:port:user:password
     --socks-proxy <s>    socks 代理：host:port
     --no-update-check    不检查是否有新版本
-    --refresh-votes      备份完成后，批量刷新页面评分/投票
+    --refresh-votes      备份完成后，批量刷新页面评分/投票（默认开启）
+    --donot-refresh-votes  不刷新评分/投票
     --scheme <s>         url 未写协议时的默认协议：http 或 https（默认 https）
     --keep-removed       保留已从 sitemap 中消失的页面（不删除）
     --only <阶段>        只跑其中几个阶段：pages、files、forum
@@ -176,11 +177,13 @@ wikit backup scp-wiki --checkpoint-seconds -1                        # 完全不
 ### 刷新评分与投票
 
 普通扫描看不到评分/投票的变化（它们不会更新页面时间戳），本地存的评分会过期。
-`--refresh-votes` 在备份后刷新它们，只重写页面元数据：
+因此 wikit 默认会在备份后刷新它们，只重写页面元数据。某次不想刷新时：
 
 ```
-wikit backup scp-wiki --refresh-votes
+wikit backup scp-wiki --donot-refresh-votes
 ```
+
+想长期关闭，在 `config.json` 里设 `"refresh_votes": false`；此时仍可用 `--refresh-votes` 临时开启。
 
 ## 更新
 
@@ -206,7 +209,7 @@ wikit version           # 显示当前版本
   "user_list_cache_freshness": 86400,
   "http_proxy": null,
   "socks_proxy": null,
-  "refresh_votes": false,
+  "refresh_votes": true,
   "scheme": "https",
   "keep_removed": false,
   "checkpoint_pages": 50,

@@ -50,9 +50,10 @@ type Config struct {
 	SocksProxy             *SocksProxy `json:"socks_proxy,omitempty"`
 	UltraFastIncremental   bool        `json:"ultra_fast_incremental_scan,omitempty"`
 
-	// RefreshVotes enables a bulk ListPages rating/vote refresh after the normal
-	// backup. Settable in config.json or via --refresh-votes.
-	RefreshVotes bool `json:"refresh_votes,omitempty"`
+	// RefreshVotes controls the bulk ListPages rating/vote refresh after the
+	// normal backup. Absent (nil) means enabled; an explicit false disables it.
+	// Overridable via --refresh-votes / --donot-refresh-votes.
+	RefreshVotes *bool `json:"refresh_votes,omitempty"`
 
 	// Scheme is the default URL scheme ("http" or "https") applied only to wikis
 	// whose own url omits a scheme (and to bare command-line names). A wiki whose
@@ -121,6 +122,12 @@ func (c *Config) FindWiki(name string) (WikiEntry, bool) {
 		}
 	}
 	return WikiEntry{}, false
+}
+
+// RefreshVotesEnabled reports whether the post-backup vote refresh should run.
+// It defaults to true when refresh_votes is not set.
+func (c *Config) RefreshVotesEnabled() bool {
+	return c.RefreshVotes == nil || *c.RefreshVotes
 }
 
 // UserCacheMillis returns the user-info cache lifetime in milliseconds, applying
